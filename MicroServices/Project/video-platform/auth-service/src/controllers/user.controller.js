@@ -4,7 +4,7 @@ import { User} from "../models/user.model.js"
 import { ApiResponse } from "../utils/apiResponse.js";
 import jwt from "jsonwebtoken"
 import mongoose from "mongoose";
-
+const { producer } = require('./kafka');
 
 const generateAccessAndRefereshTokens = async(userId) =>{
     try {
@@ -23,143 +23,101 @@ const generateAccessAndRefereshTokens = async(userId) =>{
     }
 }
 
-const registerUser = asyncHandler( async (req, res) => {
-    // get user details from frontend
-    // validation - not empty
-    // check if user already exists: username, email
-    // check for images, check for avatar
-    // upload them to cloudinary, avatar
-    // create user object - create entry in db
-    // remove password and refresh token field from response
-    // check for user creation
-    // return res
+const registerUser = asyncHandler(async (req, res) => {
+    const { fullName, email, username, password } = req.body;
 
-
-    const {fullName, email, username, password } = req.body
-    //console.log("email: ", email);
-
-    if (
-        [fullName, email, username, password].some((field) => field?.trim() === "")
-    ) {
-        throw new ApiError(400, "All fields are required")
+    if ([fullName, email, username, password].some((field) => field?.trim() === "")) {
+        throw new ApiError(400, "All fields are required");
     }
 
-    const existedUser = await User.findOne({
-        $or: [{ username }, { email }]
-    })
+    const existedUser = await User.findOne({ $or: [{ username }, { email }] });
 
     if (existedUser) {
-        throw new ApiError(409, "User with email or username already exists")
+        throw new ApiError(409, "User with email or username already exists");
     }
-    //console.log(req.files);
-
-   
 
     const user = await User.create({
         fullName,
-        email, 
+        email,
         password,
-        username: username.toLowerCase()
-    })
+        username: username.toLowerCase(),
+    });
 
-    const createdUser = await User.findById(user._id).select(
-        "-password -refreshToken"
-    )
+    const createdUser = await User.findById(user._id).select("-password -refreshToken");
 
     if (!createdUser) {
-        throw new ApiError(500, "Something went wrong while registering the user")
+        throw new ApiError(500, "Something went wrong while registering the user");
     }
 
-    return res.status(201).json(
-        new ApiResponse(200, createdUser, "User registered Successfully")
-    )
+    // Produce message to Kafka topic for user registration
+    await producer.send({
+        topic: 'auth-events',
+        messages: [{ key: 'register', value: JSON.stringify({ event: 'UserRegistered', userId: createdUser._id, email: createdUser.email }) }],
+    });
 
-} )
+    return res.status(201).json(new ApiResponse(200, createdUser, "User registered Successfully"));
+});
 
-const loginUser = asyncHandler(async (req, res) =>{
-    // req body -> data
-    // username or email
-    //find the user
-    //password check
-    //access and referesh token
-    //send cookie
-
-    const {email, username, password} = req.body
-    console.log(email);
+const loginUser = asyncHandler(async (req, res) => {
+    const { email, username, password } = req.body;
 
     if (!username && !email) {
-        throw new ApiError(400, "username or email is required")
+        throw new ApiError(400, "username or email is required");
     }
-    
-    // Here is an alternative of above code based on logic discussed in video:
-    // if (!(username || email)) {
-    //     throw new ApiError(400, "username or email is required")
-        
-    // }
 
-    const user = await User.findOne({
-        $or: [{username}, {email}]
-    })
+    const user = await User.findOne({ $or: [{ username }, { email }] });
 
     if (!user) {
-        throw new ApiError(404, "User does not exist")
+        throw new ApiError(404, "User does not exist");
     }
 
-   const isPasswordValid = await user.isPasswordCorrect(password)
-
-   if (!isPasswordValid) {
-    throw new ApiError(401, "Invalid user credentials")
+    const isPasswordValid = await user.isPasswordCorrect(password);
+    if (!isPasswordValid) {
+        throw new ApiError(401, "Invalid user credentials");
     }
 
-   const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
+    const { accessToken, refreshToken } = await generateAccessAndRefereshTokens(user._id);
 
-    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
 
     const options = {
         httpOnly: true,
-        secure: true
-    }
+        secure: true,
+    };
+
+    // Produce message to Kafka topic for user login
+    await producer.send({
+        topic: 'auth-events',
+        messages: [{ key: 'login', value: JSON.stringify({ event: 'UserLoggedIn', userId: loggedInUser._id }) }],
+    });
 
     return res
-    .status(200)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
-    .json(
-        new ApiResponse(
-            200, 
-            {
-                user: loggedInUser, accessToken, refreshToken
-            },
-            "User logged In Successfully"
-        )
-    )
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(new ApiResponse(200, { user: loggedInUser, accessToken, refreshToken }, "User logged In Successfully"));
+});
 
-})
-
-const logoutUser = asyncHandler(async(req, res) => {
-    await User.findByIdAndUpdate(
-        req.user._id,
-        {
-            $unset: {
-                refreshToken: 1 // this removes the field from document
-            }
-        },
-        {
-            new: true
-        }
-    )
+const logoutUser = asyncHandler(async (req, res) => {
+    await User.findByIdAndUpdate(req.user._id, { $unset: { refreshToken: 1 } }, { new: true });
 
     const options = {
         httpOnly: true,
-        secure: true
-    }
+        secure: true,
+    };
+
+    // Produce message to Kafka topic for user logout
+    await producer.send({
+        topic: 'auth-events',
+        messages: [{ key: 'logout', value: JSON.stringify({ event: 'UserLoggedOut', userId: req.user._id }) }],
+    });
 
     return res
-    .status(200)
-    .clearCookie("accessToken", options)
-    .clearCookie("refreshToken", options)
-    .json(new ApiResponse(200, {}, "User logged Out"))
-})
+        .status(200)
+        .clearCookie("accessToken", options)
+        .clearCookie("refreshToken", options)
+        .json(new ApiResponse(200, {}, "User logged Out"));
+});
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
     const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
