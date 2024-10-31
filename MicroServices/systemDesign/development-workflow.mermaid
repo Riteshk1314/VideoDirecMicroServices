@@ -1,0 +1,20 @@
+gantt
+    title Development Workflow
+    dateFormat  YYYY-MM-DD
+    section Phase 1 - Foundation
+    Setup Kafka Environment    :a1, 2024-01-01, 3d
+    Auth Service (Express)     :a2, after a1, 5d
+    Basic Frontend Auth        :a3, after a2, 3d
+
+    section Phase 2 - Core Upload
+    Video Service (Django)     :b1, after a3, 7d
+    S3 Integration            :b2, after b1, 2d
+    Frontend Upload           :b3, after b2, 3d
+
+    section Phase 3 - Processing
+    Processing Service (Spring):c1, after b3, 7d
+    Video Processing Pipeline :c2, after c1, 4d
+
+    section Phase 4 - Streaming
+    Streaming Service (Go)    :d1, after c2, 5d
+    Frontend Player           :d2, after d1, 3d

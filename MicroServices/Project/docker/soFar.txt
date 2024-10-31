@@ -1,0 +1,42 @@
+
+# Auth Service Dockerfile
+echo 'FROM node:18-alpine
+WORKDIR /usr/src/app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]' > auth-service/Dockerfile
+
+# Video Service Dockerfile
+echo 'FROM python:3.9
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' > video-service/Dockerfile
+
+# Processing Service Dockerfile
+echo 'FROM openjdk:17-slim
+WORKDIR /app
+COPY build/libs/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java","-jar","app.jar"]' > processing-service/Dockerfile
+
+# Streaming Service Dockerfile
+echo 'FROM golang:1.21-alpine
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -o main cmd/main.go
+EXPOSE 8090
+CMD ["./main"]' > streaming-service/Dockerfile
+
+# Create a base .env file
+echo 'MONGODB_URI=mongodb://admin:secretpassword@localhost:27017
+KAFKA_BROKERS=localhost:9092
+JWT_SECRET=your_jwt_secret_here
+REDIS_URL=redis://localhost:6379' > .env
+

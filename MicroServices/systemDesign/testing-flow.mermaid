@@ -1,0 +1,11 @@
+graph TD
+    A[Test Auth Service] -->|After Working| B[Test Video Upload]
+    B -->|After Working| C[Test Processing]
+    C -->|After Working| D[Test Streaming]
+    
+    subgraph "Each Service Testing"
+        E[1. Unit Tests]
+        F[2. API Tests]
+        G[3. Kafka Integration]
+        H[4. Cross-Service]
+    end
